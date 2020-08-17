@@ -1,0 +1,18 @@
+instance_id: iid-backup
+
+# optional settings with defaults
+hostname: backup
+timezone: Europe/Berlin
+locale: en_US.UTF-8
+
+# see https://cloudinit.readthedocs.io/en/latest/topics/modules.html#ssh-import-id
+ssh_import_id: gh:easimon
+
+# inadyn-mt (not inadyn!) configuration
+# example, config keys equivalent to those used in inadyn-mt.conf
+inadyn:
+  dyndns_system: default@strato.com
+  ip_server_name: checkip.dyndns.org:8245 /
+  username: <YOUR_USER_NAME>
+  password: <YOUR_PASSWORD>
+  alias: your.host.name.com coupled eth0

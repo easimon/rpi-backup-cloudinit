@@ -1,0 +1,4 @@
+# currently, this is ignored, so needs to be added to config.txt as well
+# hoping it will be fixed soon there's no automation to add it to config.txt
+# https://bugs.launchpad.net/ubuntu/+bug/1891802
+gpu_mem=16

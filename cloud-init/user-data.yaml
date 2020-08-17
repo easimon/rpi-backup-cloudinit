@@ -1,0 +1,183 @@
+## template: jinja
+#cloud-config
+
+hostname: {{ ds.meta_data.hostname | default('backup') }}
+manage_etc_hosts: true
+
+users:
+  - name: ubuntu
+    gecos: "Ubuntu user"
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users,video
+    ssh_import_id: {{ ds.meta_data.ssh_import_id }}
+    lock_passwd: true
+    ssh_pwauth: false
+    chpasswd: { expire: false }
+
+  - name: inadyn
+    gecos: "inadyn-mt"
+    inactive: true
+    system: true
+
+packages:
+  - joe           # yes, I dislike vi
+  - gcc           # necessary to install inadyn-mt from source
+  - make          # necessary to install inadyn-mt from source
+  - fake-hwclock
+  - sysstat
+  - iptraf-ng
+  - iotop
+  - smartmontools
+package_update: true
+package_upgrade: true
+package_reboot_if_required: false
+
+locale: {{ ds.meta_data.locale | default('en_US.UTF-8') }}
+timezone: {{ ds.meta_data.timezone | default('Europe/Berlin') }}
+
+mount_default_fields: [ None, None, "auto", "defaults,nofail", "0", "0" ]
+mounts:
+  - [ "/dev/mapper/backup-crypt", "/mnt/backup", "ext4",  "defaults,noauto,acl,user_xattr,commit=60,noatime", "0", "2" ]
+  - [ "/dev/mapper/swap-crypt"  , "swap"       , "swap" ]
+  - [ "tmpfs"                   , "/tmp"       , "tmpfs", "defaults,noatime,nosuid,size=100m" ]
+
+write_files:
+
+    # crypttab entries for backup and swap. swap will be recreated with a random key on every boot
+  - path: /etc/crypttab
+    owner: root:root
+    permissions: '0600'
+    content: |
+      # <target name> <source device>         <key file>      <options>
+      backup-crypt /dev/mapper/backup-backup none           luks,noauto
+      swap-crypt   /dev/mapper/backup-swap   /dev/urandom   cipher=aes-xts-plain64,size=256,swap,discard
+
+    # save your SD card, don't wear it by logging
+  - path: /etc/systemd/journald.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Journal]
+      Storage=volatile
+
+    # run extended smart test every saturday at 3 am
+  - path: /etc/smartd.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      DEVICESCAN -d removable -n standby -S on -s (L/../../6/03) -m root -M exec /usr/share/smartmontools/smartd-runner
+
+    # inadyn-mt systemd unit
+  - path: /etc/systemd/system/inadyn-mt.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Inadyn-mt, register an IP Address to a dynamic DNS provider
+      After=network-online.target
+
+      [Service]
+      User=inadyn
+      Group=inadyn
+      ExecStart=/usr/local/bin/inadyn-mt
+
+      [Install]
+      WantedBy=multi-user.target
+
+    # inadyn-mt configuration template
+    # this file needs to be chowned later, since target user inadyn does not yet exist when copying
+  - path: /etc/inadyn-mt.conf
+    owner: root:root
+    permissions: '0600'
+    content: |
+      --dyndns_system         {{ ds.meta_data.inadyn.dyndns_system }}
+      --ip_server_name        {{ ds.meta_data.inadyn.ip_server_name }}
+      --username              {{ ds.meta_data.inadyn.username }}
+      --password              {{ ds.meta_data.inadyn.password }}
+      --alias                 {{ ds.meta_data.inadyn.alias }}
+      --update_period_sec     300    # every 5 minutes
+      --forced_update_period  604800 # once a week
+
+    # backup partition mount helper
+  - path: /usr/local/bin/mount-backup
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      set -euo pipefail
+
+      sudo cryptdisks_start backup-crypt
+      sudo mount /mnt/backup
+
+    # script to compile and install inadyn-mt
+  - path: /usr/local/init/install-inadyn-mt.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      mkdir -p /tmp/inadyn-install
+      wget https://downloads.sourceforge.net/project/inadyn-mt/inadyn-mt/inadyn-mt.v.02.28.10/inadyn-mt.v.02.28.10.tar.gz -O /tmp/inadyn-install/inadyn.tgz
+      cd /tmp/inadyn-install
+      tar xzf inadyn.tgz
+      cd inadyn-mt*
+      ./configure --disable-sound
+      make
+      make install
+      mkdir -p /etc/inadyn-mt
+      cp extra/servers_additional.cfg /etc/inadyn-mt/
+
+      chown inadyn:inadyn /etc/inadyn-mt.conf
+
+      systemctl daemon-reload
+      systemctl enable inadyn-mt.service
+      systemctl start inadyn-mt.service
+
+      # apt-get purge gcc make
+
+    # script to create mount point and symlink for backup disk
+  - path: /usr/local/init/init-backup.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      # use symlink, so rsync fails when not mounted (instead of filling SD card)
+      mkdir -p /mnt/backup
+      ln -s backup/home /mnt/backup-home
+
+    # script to activate swap on first boot
+    # ordering issue:
+    # - usually, cryptdisk activation runs automatically on boot
+    # - but on first boot, crypttab does not yet exist
+    # - so run it a second time here to activate swap on first boot as well
+  - path: /usr/local/init/init-crypt-swap.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      systemctl start cryptsetup.target
+      swapon -a
+
+    # script to restart journald to switch to volatile storage
+    # ordering issue:
+    # - journald config is overwritten on first boot (to log to volatile storage)
+    # - but journald is already active
+    # - so restart it on first boot to re-read the configuration and continue to log
+  - path: /usr/local/init/restart-journald.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      # restart journald to switch to volatile storage
+      systemctl restart systemd-journald
+
+runcmd:
+  - /usr/local/init/restart-journald.sh
+  - /usr/local/init/init-crypt-swap.sh
+  - /usr/local/init/init-backup.sh
+  - /usr/local/init/install-inadyn-mt.sh
