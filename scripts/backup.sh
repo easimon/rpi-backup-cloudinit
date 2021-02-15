@@ -26,6 +26,6 @@ time rsync \
   --exclude-from="${RSYNC_EXCLUDE_FILE}" \
   --stats \
   /mnt/snapshot/ \
-  "${RSYNC_USER}@${RSYNC_HOST}:/mnt/backup-home/"
+  "${RSYNC_USER}@${RSYNC_HOST}:/srv/backup-home/"
 
 #  --sparse \

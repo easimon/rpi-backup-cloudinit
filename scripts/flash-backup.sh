@@ -18,5 +18,4 @@ trap cleanup EXIT
 ${FLASH} \
    --metadata "$BASE_DIR/cloud-init/meta-data.yaml" \
    --userdata "$BASE_DIR/cloud-init/user-data.yaml" \
-   --bootuserconf "$BASE_DIR/cloud-init/usercfg.txt" \
    "${BASE_DIR}/${IMAGE}"

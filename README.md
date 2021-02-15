@@ -40,7 +40,8 @@ $ pvcreate $LVMDISKS
 $ vgcreate -n backup $LVMDISKS
 $ lvcreate -L4G -n swap backup                    # creates 4GB swap logical volume
 $ lvcreate -l100%FREE -n backup backup            # and the rest for data
-$ cryptsetup luksFormat /dev/mapper/backup-backup # create a luks partition on the data LV. be sure to remember the password
+# create a luks partition on the data LV. be sure to remember the password. uses adiantum, since it's the fastest cipher on rpi
+$ cryptsetup luksFormat --type luks2 --sector-size 4096 -c xchacha12,aes-adiantum-plain64 -s 256 /dev/mapper/backup-backup
 $ cryptsetup open /dev/mapper/backup-backup backup-crypt
 $ mkfs.ext4 /dev/mapper/backup-crypt
 $ mount /dev/mapper/backup-crypt /mnt

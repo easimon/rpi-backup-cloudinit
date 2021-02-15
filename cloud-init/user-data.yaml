@@ -38,7 +38,7 @@ timezone: {{ ds.meta_data.timezone | default('Europe/Berlin') }}
 
 mount_default_fields: [ None, None, "auto", "defaults,nofail", "0", "0" ]
 mounts:
-  - [ "/dev/mapper/backup-crypt", "/mnt/backup", "ext4",  "defaults,noauto,acl,user_xattr,commit=60,noatime", "0", "2" ]
+  - [ "/dev/mapper/backup-crypt", "/srv/backup", "ext4",  "defaults,noauto,acl,user_xattr,commit=60,noatime", "0", "2" ]
   - [ "/dev/mapper/swap-crypt"  , "swap"       , "swap" ]
   - [ "tmpfs"                   , "/tmp"       , "tmpfs", "defaults,noatime,nosuid,size=100m" ]
 
@@ -50,8 +50,9 @@ write_files:
     permissions: '0600'
     content: |
       # <target name> <source device>         <key file>      <options>
-      backup-crypt /dev/mapper/backup-backup none           luks,noauto
-      swap-crypt   /dev/mapper/backup-swap   /dev/urandom   cipher=aes-xts-plain64,size=256,swap,discard
+      backup-crypt /dev/mapper/backup-backup--raw none           luks,noauto
+      # TODO: find correct encoding of 'xchacha12,aes-adiantum-plain64' (cipher name with ',') that works on boot
+      swap-crypt   /dev/mapper/backup-swap--raw   /dev/urandom   cipher=aes-xts-plain64,size=256,sector-size=4096,swap,discard
 
     # save your SD card, don't wear it by logging
   - path: /etc/systemd/journald.conf
@@ -109,7 +110,7 @@ write_files:
       set -euo pipefail
 
       sudo cryptdisks_start backup-crypt
-      sudo mount /mnt/backup
+      sudo mount /srv/backup
 
     # script to compile and install inadyn-mt
   - path: /usr/local/init/install-inadyn-mt.sh
@@ -145,8 +146,8 @@ write_files:
       #!/bin/bash
 
       # use symlink, so rsync fails when not mounted (instead of filling SD card)
-      mkdir -p /mnt/backup
-      ln -s backup/home /mnt/backup-home
+      mkdir -p /srv/backup
+      ln -s /srv/backup/home /srv/backup-home
 
     # script to activate swap on first boot
     # ordering issue:
